@@ -132,22 +132,46 @@ func (bridge *Bridge) Delete(path string) error {
 // bridge Get/Put/Post/Delete by checking it for errors
 // and invalid return types.
 func HandleResponse(resp *http.Response) ([]byte, io.Reader, error) {
-	body, err := ioutil.ReadAll(resp.Body)
-	defer resp.Body.Close()
-	if err != nil {
-		trace("Error parsing bridge description xml.", nil)
-		return []byte{}, nil, err
-	}
-	reader := bytes.NewReader(body)
-	if strings.Contains(string(body), "\"error\"") {
-		errString := string(body)
-		errNum := errString[strings.Index(errString, "type\":")+6 : strings.Index(errString, ",\"address")]
-		errDesc := errString[strings.Index(errString, "description\":\"")+14 : strings.Index(errString, "\"}}")]
-		errOut := fmt.Sprintf("Error type %s: %s.", errNum, errDesc)
-		err = errors.New(errOut)
-		return []byte{}, nil, err
-	}
-	return body, reader, nil
+    body, err := io.ReadAll(resp.Body)
+    defer resp.Body.Close()
+    if err != nil {
+        trace("Error reading response body.", err)
+        return nil, nil, err
+    }
+
+    contentType := resp.Header.Get("Content-Type")
+    if strings.Contains(contentType, "application/json") {
+        // Check if the response is a JSON object or array
+        var jsonObject map[string]interface{}
+        var jsonArray []interface{}
+
+        if err := json.Unmarshal(body, &jsonObject); err == nil {
+            // Successfully parsed as JSON object
+            if errors, ok := jsonObject["error"]; ok {
+                if errorList, valid := errors.([]interface{}); valid && len(errorList) > 0 {
+                    if errorDetail, valid := errorList[0].(map[string]interface{}); valid {
+                        errType := errorDetail["type"]
+                        errDesc := errorDetail["description"]
+                        return nil, nil, fmt.Errorf("Error type %v: %v", errType, errDesc)
+                    }
+                }
+            }
+        } else if err := json.Unmarshal(body, &jsonArray); err == nil {
+            // Successfully parsed as JSON array
+            trace("JSON array response successfully parsed.", nil)
+        } else {
+            trace("Error unmarshalling JSON response.", err)
+            return nil, nil, fmt.Errorf("invalid JSON response: %s", string(body))
+        }
+    } else if strings.Contains(contentType, "application/xml") || strings.Contains(contentType, "text/xml") {
+        // Handle XML response
+        return body, bytes.NewReader(body), nil
+    } else {
+        // Unknown content type
+        trace("Unknown content type in response.", nil)
+        return nil, nil, fmt.Errorf("unexpected response format: %s", string(body))
+    }
+    return body, bytes.NewReader(body), nil
 }
 
 // FindBridges will visit www.meethue.com/api/nupnp to see a list of
