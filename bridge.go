@@ -157,7 +157,6 @@ func HandleResponse(resp *http.Response) ([]byte, io.Reader, error) {
             }
         } else if err := json.Unmarshal(body, &jsonArray); err == nil {
             // Successfully parsed as JSON array
-            trace("JSON array response successfully parsed.", nil)
         } else {
             trace("Error unmarshalling JSON response.", err)
             return nil, nil, fmt.Errorf("invalid JSON response: %s", string(body))
